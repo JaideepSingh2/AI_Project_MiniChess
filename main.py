@@ -1,8 +1,7 @@
 import pygame
 import os
-from ui.popup import Popup
-import pickle
 import threading
+from ui.popup import Popup
 from code_logic.chessboard import ChessBoard
 from code_logic.game_rules import GameRules
 from code_logic.chess_ai import ChessAI
@@ -10,7 +9,9 @@ from audio.sounds import SoundManager
 from ui.start_menu import StartMenu
 from ui.game_menu import GameMenu
 from ui.status_display import StatusDisplay
-import pickle
+from code_logic.save_manager import SaveManager
+from ui.save_dialog import SaveDialog
+from ui.load_dialog import LoadDialog
 
 def main():
     pygame.init()
@@ -19,28 +20,82 @@ def main():
     sidebar_width = 250
     screen_width = board_width + sidebar_width
     screen = pygame.display.set_mode((screen_width, board_height))
-    pygame.display.set_caption('Chess Board')
+    pygame.display.set_caption('Chess AI Game')
     
+    save_manager = SaveManager()
     start_menu = StartMenu(screen_width, board_height)
     
     while True:
         choice = start_menu.run()
         
         if choice == 'Human_vs_Human':
-            run_game(screen, screen_width, board_height, sidebar_width, sound_manager, 'Human_vs_Human')
+            run_game(screen, screen_width, board_height, sidebar_width, sound_manager, save_manager, 'Human_vs_Human')
         elif choice == 'Human_vs_AI':
-            run_game(screen, screen_width, board_height, sidebar_width, sound_manager, 'Human_vs_AI')
+            run_game(screen, screen_width, board_height, sidebar_width, sound_manager, save_manager, 'Human_vs_AI')
         elif choice == 'AI_vs_AI':
-            run_game(screen, screen_width, board_height, sidebar_width, sound_manager, 'AI_vs_AI')
+            run_game(screen, screen_width, board_height, sidebar_width, sound_manager, save_manager, 'AI_vs_AI')
+        elif choice.startswith('load_game:'):
+            # Load and run a saved game
+            game_name = choice[10:]  # Remove 'load_game:' prefix
+            load_and_run_game(screen, screen_width, board_height, sidebar_width, sound_manager, save_manager, game_name)
 
-def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, game_mode='Human_vs_Human'):
+def load_and_run_game(screen, screen_width, board_height, sidebar_width, sound_manager, save_manager, game_name):
+    """Load and run a saved game"""
     board_width = screen_width - sidebar_width
     chess_board = ChessBoard(screen, board_width, board_height)
     game_rules = GameRules(chess_board)
+    
+    # Load the game
+    success, message, game_mode = save_manager.load_game(game_name, chess_board, game_rules)
+    
+    if success:
+        # Show success popup briefly
+        popup = Popup(screen, f"Loaded game: {game_name}")
+        popup.show()
+        
+        # Brief display of loading message
+        clock = pygame.time.Clock()
+        start_time = pygame.time.get_ticks()
+        while pygame.time.get_ticks() - start_time < 1500:  # Show for 1.5 seconds
+            screen.fill((30, 30, 30))
+            if not popup.draw():
+                break
+            pygame.display.flip()
+            clock.tick(60)
+        
+        # Run the loaded game
+        run_game(screen, screen_width, board_height, sidebar_width, sound_manager, save_manager, game_mode, chess_board, game_rules)
+    else:
+        # Show error and return to menu
+        popup = Popup(screen, f"Failed to load game: {message}", duration=3000)
+        popup.show()
+        
+        # Show popup for a moment then return
+        clock = pygame.time.Clock()
+        start_time = pygame.time.get_ticks()
+        while pygame.time.get_ticks() - start_time < 3000:
+            screen.fill((30, 30, 30))
+            if not popup.draw():
+                break
+            pygame.display.flip()
+            clock.tick(60)
+
+def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, save_manager, game_mode='Human_vs_Human', chess_board=None, game_rules=None):
+    board_width = screen_width - sidebar_width
+    
+    # Initialize game components if not provided (new game)
+    if chess_board is None:
+        chess_board = ChessBoard(screen, board_width, board_height)
+    if game_rules is None:
+        game_rules = GameRules(chess_board)
+    
     game_menu = GameMenu(screen_width, board_height, sidebar_width)
     clock = pygame.time.Clock()
     popup = None
+    save_dialog = None
+    load_dialog = None
 
+    # Initialize AI based on game mode
     ai_white = ChessAI(chess_board, game_rules, depth=4) if game_mode == 'AI_vs_AI' else None
     ai_black = ChessAI(chess_board, game_rules, depth=3) if game_mode in ['Human_vs_AI', 'AI_vs_AI'] else None
 
@@ -68,19 +123,18 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
 
     def draw_turn_indicator():
         sidebar_color = (0, 0, 0) if game_rules.current_turn == 'white' else (255, 255, 255)
-        # changed black to white in above for current turn colour.
         pygame.draw.rect(screen, sidebar_color, (board_width, 0, sidebar_width, board_height))
 
     def update_game_status():
         nonlocal check_sound_played, checkmate_sound_played, stalemate_sound_played
         current_player = game_rules.current_turn
         opponent = 'black' if current_player == 'white' else 'white'
-        # swapped black with white and vice versa, invert colours here to go back.
 
         game_over = game_rules.is_game_over()
         if game_over:
             if "Checkmate" in game_over and not checkmate_sound_played:
-                status_display.update_status(game_over, "checkmate", current_turn=current_player)
+                winner = 'black' if current_player == 'white' else 'white'
+                status_display.update_status(game_over, "checkmate", current_turn=winner)
                 sound_manager.play_checkmate_sound()
                 checkmate_sound_played = True
             elif "Stalemate" in game_over and not stalemate_sound_played:
@@ -96,7 +150,6 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
 
             for piece in opponent_pieces:
                 if king_position in piece.get_possible_moves(chess_board):
-                    # remove the tempcolor as it currently inverts as required
                     if (opponent == 'black'):
                         tempcolor2 = 'white'
                     else:
@@ -108,7 +161,6 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
                 tempplayer = 'white'
             else:
                 tempplayer = 'black'
-            # remove tempplayer with current_player
 
             status_display.update_status(
                 f"{tempplayer.capitalize()} is in Check!",
@@ -123,7 +175,6 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
         if game_rules.is_move_legal(selected_piece, final_position) and chess_board.move_piece(selected_piece, final_position):
             current_player = game_rules.current_turn
             opponent = 'black' if current_player == 'white' else 'white'
-            # swapped black with white and vice versa, invert colours here to go back.
 
             captured_piece = chess_board.get_piece_at(final_position)
             game_rules.record_move(
@@ -136,7 +187,8 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
             game_over = game_rules.is_game_over()
             if game_over:
                 if "Checkmate" in game_over and not checkmate_sound_played:
-                    status_display.update_status(game_over, "checkmate", current_turn=current_player)
+                    winner = 'black' if current_player == 'white' else 'white'
+                    status_display.update_status(game_over, "checkmate", current_turn=winner)
                     sound_manager.play_checkmate_sound()
                     checkmate_sound_played = True
                 elif "Stalemate" in game_over and not stalemate_sound_played:
@@ -152,8 +204,6 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
 
                 for piece in opponent_pieces:
                     if king_position in piece.get_possible_moves(chess_board):
-
-                        # remove the tempcolor as it currently inverts as required
                         if (opponent == 'black'):
                             tempcolor2 = 'white'
                         else:
@@ -166,7 +216,6 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
                 else:
                     tempplayer = 'black'
 
-                # remove tempplayer with current_player
                 status_display.update_status(
                     f"{tempplayer.capitalize()} is in Check!",
                     "check",
@@ -187,12 +236,14 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
         return False
 
     while running:
+        dt = clock.tick(60)
         mouse_pos = pygame.mouse.get_pos()
 
         current_turn = game_rules.current_turn
         current_ai = ai_black if current_turn == 'white' else ai_white
 
-        if game_mode in ['Human_vs_AI', 'AI_vs_AI'] and current_ai:
+        # Handle AI moves
+        if game_mode in ['Human_vs_AI', 'AI_vs_AI'] and current_ai and not save_dialog and not load_dialog and not game_menu.menu_open:
             if not ai_move_ready.is_set():
                 threading.Thread(target=calculate_ai_move, args=(current_ai, current_turn)).start()
 
@@ -208,31 +259,92 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
             if event.type == pygame.QUIT:
                 running = False
 
+            # Handle save dialog events
+            if save_dialog:
+                result = save_dialog.handle_event(event)
+                if result:
+                    if result == "cancel":
+                        save_dialog = None
+                    elif result.startswith("save:"):
+                        save_name = result[5:]
+                        success, message = save_manager.save_game(chess_board, game_rules, game_mode, save_name)
+                        save_dialog = None
+                        popup = Popup(screen, message, duration=3000)
+                        popup.show()
+                continue
+
+            # Handle load dialog events
+            if load_dialog:
+                result = load_dialog.handle_event(event)
+                if result:
+                    if result == "cancel":
+                        load_dialog = None
+                    elif result.startswith("load:"):
+                        game_name = result[5:]
+                        success, message, loaded_game_mode = save_manager.load_game(game_name, chess_board, game_rules)
+                        load_dialog = None
+                        if success:
+                            # Update game mode and AI
+                            game_mode = loaded_game_mode
+                            ai_white = ChessAI(chess_board, game_rules, depth=4) if game_mode == 'AI_vs_AI' else None
+                            ai_black = ChessAI(chess_board, game_rules, depth=3) if game_mode in ['Human_vs_AI', 'AI_vs_AI'] else None
+                            if ai_white:
+                                ai_white.status_display = status_display
+                            if ai_black:
+                                ai_black.status_display = status_display
+                            # Reset AI state
+                            ai_move_ready.clear()
+                        popup = Popup(screen, message, duration=3000)
+                        popup.show()
+                    elif result.startswith("delete:"):
+                        game_name = result[7:]
+                        success, message = save_manager.delete_game(game_name)
+                        # Refresh the dialog with updated game list
+                        saved_games = save_manager.get_saved_games()
+                        load_dialog = LoadDialog(screen_width, board_height, saved_games)
+                        popup = Popup(screen, message, duration=2000)
+                        popup.show()
+                continue
+
             elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Skip interaction during AI vs AI except for menu
                 if game_mode == 'AI_vs_AI':
+                    menu_action = game_menu.handle_click(mouse_pos)
+                    if menu_action:
+                        if menu_action == 'resume':
+                            game_menu.menu_open = False
+                        elif menu_action == 'save_game':
+                            save_dialog = SaveDialog(screen_width, board_height)
+                        elif menu_action == 'load_game':
+                            saved_games = save_manager.get_saved_games()
+                            if saved_games:
+                                load_dialog = LoadDialog(screen_width, board_height, saved_games)
+                            else:
+                                popup = Popup(screen, "No saved games found!", duration=2000)
+                                popup.show()
+                        elif menu_action == 'main_menu':
+                            return
                     continue
+                
+                # Handle menu clicks
                 menu_action = game_menu.handle_click(mouse_pos)
                 if menu_action:
                     if menu_action == 'resume':
                         game_menu.menu_open = False
                     elif menu_action == 'save_game':
-                        if save_game(chess_board, game_rules, game_mode):
-                            popup = Popup(screen, "Game saved successfully!")
-                            popup.show()
-                        else:
-                            popup = Popup(screen, "Failed to save game!")
-                            popup.show()
+                        save_dialog = SaveDialog(screen_width, board_height)
                     elif menu_action == 'load_game':
-                        if load_game(chess_board, game_rules, game_mode):
-                            popup = Popup(screen, "Game loaded successfully!")
-                            popup.show()
+                        saved_games = save_manager.get_saved_games()
+                        if saved_games:
+                            load_dialog = LoadDialog(screen_width, board_height, saved_games)
                         else:
-                            popup = Popup(screen, "Failed to load game!")
+                            popup = Popup(screen, "No saved games found!", duration=2000)
                             popup.show()
                     elif menu_action == 'main_menu':
                         return
                     continue
 
+                # Handle game clicks (only if menu is not open)
                 if not game_menu.menu_open:
                     position = pygame.mouse.get_pos()
                     tile_position = chess_board.handle_click(position)
@@ -247,9 +359,15 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
                         else:
                             selected_piece = piece if piece and piece.color == game_rules.current_turn else None
 
+        # Update dialogs
+        if save_dialog:
+            save_dialog.update(dt)
+
+        # Draw everything
         screen.fill((255, 255, 255))
         chess_board.construct_board()
 
+        # Highlight selected piece and possible moves
         if selected_piece:
             x = chess_board.board_offset_x + selected_piece.position[1] * chess_board.tile_size
             y = chess_board.board_offset_y + selected_piece.position[0] * chess_board.tile_size
@@ -264,62 +382,24 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
                 screen.blit(highlight_surface, (move_x, move_y))
 
         chess_board.draw_pieces()
-
         draw_turn_indicator()
         update_game_status()
         status_display.draw_move_history(screen, game_rules.move_history)
         status_display.draw(screen)
         game_menu.draw_menu(screen)
 
+        # Draw dialogs on top
+        if save_dialog:
+            save_dialog.draw(screen)
+        if load_dialog:
+            load_dialog.draw(screen)
+
+        # Draw popup messages
         if popup:
             if not popup.draw():
                 popup = None
 
         pygame.display.flip()
-        clock.tick(60)
-
-def save_game(chess_board, game_rules, game_mode, file_name="saved_game.pkl"):
-    try:
-        # Create save_game directory if it doesn't exist
-        save_dir = "saved_games"
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        
-        # Create full file path
-        file_path = os.path.join(save_dir, file_name)
-        
-        with open(file_path, 'wb') as file:
-            game_state = {
-                'board': [(p.type, p.color, p.position) for p in chess_board.pieces],
-                'current_turn': game_rules.current_turn,
-                'game_mode': game_mode
-            }
-            pickle.dump(game_state, file)
-        return True
-    except:
-        return False
-
-def load_game(chess_board, game_rules, current_game_mode, file_name="saved_game.pkl"):
-    try:
-        # Create full file path
-        file_path = os.path.join("saved_games", file_name)
-        
-        with open(file_path, 'rb') as file:
-            game_state = pickle.load(file)
-            
-            saved_game_mode = game_state.get('game_mode', 'human_vs_human')  
-            if saved_game_mode != current_game_mode:
-                return False  
-
-            chess_board.pieces = [
-                chess_board.create_piece(piece_type, color, position)
-                for piece_type, color, position in game_state['board']
-            ]
-            game_rules.current_turn = game_state['current_turn']
-            return True
-    except FileNotFoundError:
-        return False
-  
 
 if __name__ == "__main__":
     main()
