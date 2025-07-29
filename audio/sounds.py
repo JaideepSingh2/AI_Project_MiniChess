@@ -1,12 +1,17 @@
 import pygame
+import os 
 
 class SoundManager:
     def __init__(self):
-        pygame.mixer.init()
-        self.move_sound = pygame.mixer.Sound("move.wav")
-        self.check_sound = pygame.mixer.Sound("check.wav")
-        self.checkmate_sound = pygame.mixer.Sound("checkmate.wav")
-        self.stalemate_sound = pygame.mixer.Sound("stalemate.wav")
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Load sound files with absolute paths
+            self.move_sound = pygame.mixer.Sound(os.path.join(script_dir, "move.wav"))
+            self.check_sound = pygame.mixer.Sound(os.path.join(script_dir, "check.wav"))
+            self.checkmate_sound = pygame.mixer.Sound(os.path.join(script_dir, "checkmate.wav"))
+            self.stalemate_sound = pygame.mixer.Sound(os.path.join(script_dir, "stalemate.wav"))
+            
+            print("Sound system initialized successfully")
 
     def play_move_sound(self):
         self.move_sound.play()

@@ -1,4 +1,4 @@
-from piece import King
+from .piece import King
 
 class GameRules:
     def __init__(self, board):

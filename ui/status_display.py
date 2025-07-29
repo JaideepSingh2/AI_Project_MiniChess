@@ -1,5 +1,5 @@
 import pygame
-from game_rules import GameRules as gr
+from code_logic.game_rules import GameRules as gr
 
 class StatusDisplay:
     def __init__(self, board_width, board_height, sidebar_width):

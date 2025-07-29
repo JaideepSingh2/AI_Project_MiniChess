@@ -1,4 +1,4 @@
-from piece import King, Queen, Rook, Bishop, Knight, Pawn
+from .piece import King, Queen, Rook, Bishop, Knight, Pawn
 import time
 
 class ChessAI:
