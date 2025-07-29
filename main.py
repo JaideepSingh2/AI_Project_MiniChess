@@ -1,4 +1,5 @@
 import pygame
+import os
 from ui.popup import Popup
 import pickle
 import threading
@@ -279,7 +280,15 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, g
 
 def save_game(chess_board, game_rules, game_mode, file_name="saved_game.pkl"):
     try:
-        with open(file_name, 'wb') as file:
+        # Create save_game directory if it doesn't exist
+        save_dir = "saved_games"
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        
+        # Create full file path
+        file_path = os.path.join(save_dir, file_name)
+        
+        with open(file_path, 'wb') as file:
             game_state = {
                 'board': [(p.type, p.color, p.position) for p in chess_board.pieces],
                 'current_turn': game_rules.current_turn,
@@ -292,7 +301,10 @@ def save_game(chess_board, game_rules, game_mode, file_name="saved_game.pkl"):
 
 def load_game(chess_board, game_rules, current_game_mode, file_name="saved_game.pkl"):
     try:
-        with open(file_name, 'rb') as file:
+        # Create full file path
+        file_path = os.path.join("saved_games", file_name)
+        
+        with open(file_path, 'rb') as file:
             game_state = pickle.load(file)
             
             saved_game_mode = game_state.get('game_mode', 'human_vs_human')  
@@ -307,7 +319,7 @@ def load_game(chess_board, game_rules, current_game_mode, file_name="saved_game.
             return True
     except FileNotFoundError:
         return False
-    
+  
 
 if __name__ == "__main__":
     main()
