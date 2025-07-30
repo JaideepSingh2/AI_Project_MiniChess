@@ -96,12 +96,13 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, s
     load_dialog = None
 
     # Initialize AI based on game mode
-    ai_white = ChessAI(chess_board, game_rules, depth=4) if game_mode == 'AI_vs_AI' else None
+    ai_white = ChessAI(chess_board, game_rules, depth=3) if game_mode == 'AI_vs_AI' else None
     ai_black = ChessAI(chess_board, game_rules, depth=3) if game_mode in ['Human_vs_AI', 'AI_vs_AI'] else None
 
     ai_move_results = {'white': None, 'black': None}
     turn_lock = threading.Lock()
     ai_move_ready = threading.Event()
+    ai_thread = None
 
     def calculate_ai_move(ai, color):
         best_move = ai.get_best_move(color)
@@ -242,18 +243,19 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, s
         current_turn = game_rules.current_turn
         current_ai = ai_black if current_turn == 'white' else ai_white
 
-        # Handle AI moves
+        # Handle AI moves (non-blocking, threaded)
         if game_mode in ['Human_vs_AI', 'AI_vs_AI'] and current_ai and not save_dialog and not load_dialog and not game_menu.menu_open:
-            if not ai_move_ready.is_set():
-                threading.Thread(target=calculate_ai_move, args=(current_ai, current_turn)).start()
-
-            ai_move_ready.wait()
-            with turn_lock:
-                best_move = ai_move_results[current_turn]
-                if best_move:
-                    piece, new_position = best_move
-                    handle_move(piece, new_position)
-                    ai_move_ready.clear()
+            if not ai_move_ready.is_set() and (ai_thread is None or not ai_thread.is_alive()):
+                ai_thread = threading.Thread(target=calculate_ai_move, args=(current_ai, current_turn))
+                ai_thread.start()
+            elif ai_move_ready.is_set():
+                with turn_lock:
+                    best_move = ai_move_results[current_turn]
+                    if best_move:
+                        piece, new_position = best_move
+                        handle_move(piece, new_position)
+                        ai_move_results[current_turn] = None
+                        ai_move_ready.clear()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -307,26 +309,7 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, s
                 continue
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                # Skip interaction during AI vs AI except for menu
-                if game_mode == 'AI_vs_AI':
-                    menu_action = game_menu.handle_click(mouse_pos)
-                    if menu_action:
-                        if menu_action == 'resume':
-                            game_menu.menu_open = False
-                        elif menu_action == 'save_game':
-                            save_dialog = SaveDialog(screen_width, board_height)
-                        elif menu_action == 'load_game':
-                            saved_games = save_manager.get_saved_games()
-                            if saved_games:
-                                load_dialog = LoadDialog(screen_width, board_height, saved_games)
-                            else:
-                                popup = Popup(screen, "No saved games found!", duration=2000)
-                                popup.show()
-                        elif menu_action == 'main_menu':
-                            return
-                    continue
-                
-                # Handle menu clicks
+                # Always allow menu clicks, even in AI vs AI mode
                 menu_action = game_menu.handle_click(mouse_pos)
                 if menu_action:
                     if menu_action == 'resume':
@@ -344,8 +327,8 @@ def run_game(screen, screen_width, board_height, sidebar_width, sound_manager, s
                         return
                     continue
 
-                # Handle game clicks (only if menu is not open)
-                if not game_menu.menu_open:
+                # Only allow piece selection if not AI vs AI and menu is closed
+                if not game_menu.menu_open and game_mode != 'AI_vs_AI':
                     position = pygame.mouse.get_pos()
                     tile_position = chess_board.handle_click(position)
                     piece = chess_board.get_piece_at(tile_position) if tile_position else None
